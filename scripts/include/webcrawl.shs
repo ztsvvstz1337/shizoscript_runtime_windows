@@ -1,0 +1,239 @@
+
+
+class WebCrawler =
+{
+	getwebroot(str)
+	{
+		if(str:starts("http://"))
+		{
+			str:erase("http://");
+		}
+		else(str:starts("https://"))
+		{
+			str:erase("https://");        
+		};
+			
+		return str:substr(0,str:find_any("/?#&"));
+	};
+
+	getwebrootpath(url)
+	{
+		prefix = "";
+
+		if(url:starts("http://"))
+		{
+				prefix = "http://";
+				url:erase("http://");
+		}
+		else(url:starts("https://"))
+		{
+				prefix = "https://";
+				url:erase("https://");        
+		};
+
+		return prefix + url:substr(0,url:find_any("/?#&"));
+	};
+
+
+	mDBPath = "";
+	
+	auto mLinkList = 0;
+	auto mCrawled = 0;
+	auto mQueue = 0;
+	auto mMedia = 0;
+	auto mIndex = 0;
+	auto mSocialMedia = 0;
+	int mAnalyzerThreads = 0;
+	
+	init()
+	{
+	
+	};
+	
+	setdb(dbpath)
+	{
+		mDBPath = dbpath;
+		mLinkList = kvdb(dbpath + "/linklist");
+		mCrawled = kvdb(dbpath + "/crawled");
+		mMedia = kvdb(dbpath + "/media");
+		mMedia = kvdb(dbpath + "/socialmedia");
+		mIndex = ivdb(dbpath + "/indexes", 300);
+		mQueue = kvdb(dbpath + "/pending");
+	};
+	
+	getLinkCount() 
+	{
+		return mLinkList:count();
+	};
+	
+	parallel getlinks(url)
+	{
+		webroot = getwebrootpath(url);
+		
+		auto site = html(url);
+
+        refs = site.href;
+		res = 0;
+
+        for(i = 0; i < refs:count(); i++)
+        {
+			attrref = #refs[i].attr;
+
+			if(attrref.href[0] == "#")
+			{
+				continue;
+			};
+
+			if(attrref.href[0] == ".")
+			{
+					attrref.href[0] = null; //erase
+					attrref.href = webroot + attrref.href;
+			}
+			else((!attrref.href:starts("http")) && (!attrref.href:starts("www")))
+			{
+				if(attrref.href[0] == "/")
+				{
+					attrref.href = webroot + attrref.href;
+				}
+				else
+				{
+					attrref.href = webroot + "/" + attrref.href;
+				};
+				
+			};
+
+			if(!contains_any(attrref.href,"google w3school javascript focus wikipedia sueddeutsche bild.de faz.net"))
+			{
+					if(contains_any(attrref.href,".jpg .jpeg .png .gif .mp3 .mp4 .png .js .fav .bmp .ico .pdf .css .js"))
+					{
+						//print("media: " + attrref.href);
+						mMedia[attrref.href] = refs[i].text;
+					}
+					else(contains_any(attrref.href,"apple itunes spotify facebook vimeo tiktok tumblr gettr rumble youtube linkedin twitter xinq instagram t.me telegram paypal"))
+					{
+						//print("media: " + attrref.href);
+						mSocialMedia[attrref.href] = refs[i].text;
+						mLinkList[attrref.href] = [text:refs[i].text,root:webroot];
+					}
+					else
+					{
+						//print("new entry: " + attrref.href);
+						res:push(attrref.href);
+						mLinkList[attrref.href] = [text:refs[i].text,root:webroot];  
+					};
+			};                
+        };
+	
+		return res;
+	};
+	
+	analyze(url)
+	{
+		mAnalyzerThreads++;
+
+		if((vtype(url) != "STRING") || url:empty())
+		{
+			print("analyze invalid type! " + vtype(url));
+			mAnalyzerThreads--;
+			return 0;
+		};
+	
+		print("analyzing " + url);
+	
+		//get raw website text
+		rtext = html_rawtext(html_get(url));
+		if(rtext:empty())
+		{
+			url += "/";
+			rtext = html_rawtext(html_get(url));
+			if(rtext:empty())
+			{
+				print("website is empty!");
+				mAnalyzerThreads--;
+				return 0;
+			};
+		};
+		
+		//get links
+		rlinks = getlinks(url);
+		mIndex[url] = [text:rtext,links:rlinks];
+		
+		
+		for(it :: rlinks)
+		{
+			//print("link: " + it);
+			if(!mCrawled:has_key(it))
+			{
+				if((it:empty() == 0) && (it:count() > 3))
+				{
+					mQueue[it] = 1;
+				};
+			};
+		};
+		
+		mAnalyzerThreads--;
+		return rlinks;
+	};
+	
+	
+	parallel crawl(url)
+	{
+		
+		analyze(url);
+		
+		threads = 0;
+		
+		for(1)
+		{
+			for(!mQueue:kvdb_empty())
+			{
+				//print("queue size: " + mQueue:count());
+			
+				if(mAnalyzerThreads < 50)
+				{
+					qkey = mQueue:kvdb_keyat(randomInt(0,mQueue:count()-1));
+					if(!qkey:empty())
+					{
+						mCrawled[qkey] = 1;
+						mQueue[qkey] = null;
+
+						threads:push(~analyze(qkey));
+					};
+				};
+				sleep(200);
+				for(mAnalyzerThreads >= 50)
+				{
+					sleep(100);
+				};
+			};
+			
+			if(threads:empty())
+			{
+				break;
+			};
+			for(i = 0; i < threads:count(); )
+			{
+				if(joinable(threads[i]))
+				{
+					join(threads[i]);
+					threads:erase(i);
+				}
+				else
+				{
+					i++;
+				};
+			};
+			sleep(500);
+		};
+	};
+	
+	findSites(keywords)
+	{
+		return mIndex:ivdb_search(keywords);
+	};
+	findLinks(keywords)
+	{
+		return mIndex:ivdb_searchkeys(keywords);
+	};
+};
+

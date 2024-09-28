@@ -1,0 +1,240 @@
+
+global singleton config_markup =
+{
+	parse(str)
+	{
+		final_obj = 0;
+		
+		strs = split(str,nl());
+		
+		current_indent = 0;
+		
+		
+		obj_list = 0;
+		obj_indent = [0];
+		
+		obj_list:push_ref(final_obj);
+
+		last_obj = #final_obj;
+		last_indent = 0;
+
+		
+		for(#line, linenum :: strs)
+		{
+			if(line:empty_str())
+				continue;
+			
+			//print("line: " + $line);
+			
+			current_indent = indentation(line);
+			
+			while(current_indent <= last_indent)
+			{
+				if(obj_list:count() > 1)
+				{
+					obj_list:pop();
+					obj_indent:pop();
+				}
+				else
+					break;
+				
+				last_obj = obj_list[-1];
+				last_indent = obj_indent[-1];
+			}
+			
+			token_pos = line:specialfind(":");
+			if(token_pos != -1)
+			{
+				token = removetrails(line:substr(0,token_pos));
+				//print("subclass: " + token);
+				last_obj = obj_list:push_ref(last_obj[token]);
+				last_indent = current_indent;	
+				obj_indent:push(current_indent);
+				
+				rest_str = line:substr(token_pos+1);
+				if(!rest_str:empty_str())
+					error(f"discarding text after class definition {{token}}: {{rest_str}}");
+			
+				continue;
+			}
+			
+			//if its not a subclass definition, we can savely assume
+			//every subsequent line which has more indentation than current
+			//belongs to this command block.
+			first_it = 1;
+			for(j = linenum+1; j < strs:count(); j++)
+			{
+				if(strs[j]:empty_str())
+				{
+					$line += nl();
+					continue;
+				}
+				if(indentation(strs[j]) <= current_indent)	
+				{
+					break;
+				}
+				if(first_it)
+				{
+					first_it = 0;
+					$line += nl();
+				}
+				$line += removetrails(strs[j]) + nl();
+				strs[j] = "";
+				linenum = j;
+			}
+			
+			$line = line:removetrails();
+			$line = line:removebadchars();
+			
+			token_pos = line:specialfind("=");
+						
+			if(token_pos != -1)
+			{
+				vkey = quotation(removetrails(line:substr(0,token_pos)));
+				value = removetrails(line:substr(token_pos+1));
+				
+				if(!value:empty_str())
+				{	
+					if(value[0] == "[")
+					{
+						value = value:substr(1);
+						if(value[-1] == ";")
+							value:pop();
+						if(value[-1] != "]")
+						{
+							error(f"cannot parse array list {{vkey}}: {{value}}");
+							continue;
+						}
+						value:pop();
+						
+						entries = value:split(",");
+						
+						for(#entry :: entries)
+						{
+							$entry = entry:removetrails();
+							if(entry:find_any_not_of("0123456789.-;") == -1)
+							{
+								if(entry:find(".") != -1)
+								{
+									last_obj[vkey]:push(float($entry));
+								}
+								else
+								{
+									last_obj[vkey]:push(int($entry));
+								}
+							}
+							else
+							{
+								if(entry[0] == qt() || entry[0] == qt2())
+								{
+									last_obj[vkey]:push(quotation($entry));
+								}
+								else
+								{
+									last_obj[vkey]:push($entry);
+								}
+							}
+						}
+						
+						continue;
+					}
+					
+					if(value:find_any_not_of("0123456789.-;") == -1)
+					{
+						value = value:replace(";","");
+						if(value:find(".") != -1)
+						{
+							last_obj[vkey] = float(value);
+						}
+						else
+						{
+							last_obj[vkey] = int(value);
+						}
+					}
+					else
+					{
+						if(value[0] == "B" && (value[1] == qt() || value[1] == qt2()))
+						{
+							value:erase(0);
+							last_obj[vkey] = decode_data(quotation(value));
+						}
+						else(value[0] == qt() || value[0] == qt2())
+						{
+							last_obj[vkey] = quotation(value);
+						}
+						else
+						{
+							last_obj[vkey] = value;
+						}
+					}
+				}
+				else
+				{
+					error(f"empty value for key {{vkey}}!");
+				}
+
+				continue;
+			}
+			
+			if(line[0] != "#")
+				print("cannot parse line: " + $line);
+		}
+		
+		return final_obj;
+	}
+
+	to_string_internal(#obj, #res, current_indent)
+	{
+		for(#it, idx :: obj)
+		{
+			vkey = obj:key(idx);
+			if(vkey:empty_str())
+				continue;
+			$res += indent(current_indent);
+			if($it:vtype() == "JSON")
+			{
+				$res += vkey + ":" + nl();
+				this.to_string_internal(it,res,current_indent+1);
+			}
+			else($it:vtype() == "INT")
+			{
+				$res += vkey + " = " + int($it);
+			}
+			else($it:vtype() == "FLOAT")
+			{
+				$res += vkey + " = " + float($it);
+			}
+			else($it:vtype() == "STRING")
+			{
+				if(it:find(nl()) != -1)
+				{
+					strs = it:split(nl());
+					$res += vkey + " = " + qt2() + strs[0] + nl();
+					for(j = 1; j < strs:count(); j++)
+					{
+						$res += indent(current_indent+1) + strs[j];
+					}
+					$res += qt2();
+				}
+				else
+				{
+					$res += vkey + " = " + qt2() + $it + qt2();
+				}
+			}
+			else($it:vtype() == "DATA")
+			{
+				$res += vkey + " = B" + qt2() + encode_data($it) + qt2();
+			}
+			$res += nl();
+		}
+	}
+
+	to_string(#obj)
+	{
+		res = "";
+		print(vtype(this));
+		this.to_string_internal(obj,res,0);
+		return res;
+	}
+};
+

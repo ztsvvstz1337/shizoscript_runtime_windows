@@ -1,0 +1,143 @@
+
+class NetworkModule =
+{
+
+
+ server_cbs = 0;
+
+ add_cmd(name,cb)
+ {
+  this.server_cbs[name] = cb;
+ }
+
+
+
+ cache_cbs = 0;
+
+ run(name,params)
+ {
+  if(this.cache_cbs:has_key(name) && szdevonline(this.cache_cbs[name]))
+  {
+   dev = this.cache_cbs[name];
+   cmd = [act:"run", name:name, params:params];
+   res = datatojson(dev:szexecresponse("NETCB",jsontodata(cmd)));
+   if(res.response == "success")
+   {
+    return res.data;
+   }
+   error("cmd execution not successful: " + name);
+   print(res);
+   return fail(res.response);
+  }
+
+  cmd = [act:"check",name:name];
+
+  cmd_data = jsontodata(cmd);
+
+  f_cmd = [act:"run", name:name, params:params];
+
+  print("netcb not found. checking devices...");
+
+  for(i = 0; i < szdevcount(); i++)
+  {
+   f_dev = szdevget(i);
+   if(f_dev:szdevonline() && f_dev:szgetprop("NETCB"))
+   {
+    print("checking("+i+"): " + f_dev:szdevname());
+    res = datatojson(f_dev:szexecresponse("NETCB",cmd_data));
+
+    print("response: ");
+    print(res);
+
+    if(res.response == "yes")
+    {
+     print("found device.");
+     res = datatojson(f_dev:szexecresponse("NETCB",jsontodata(f_cmd)));
+     if(res.response == "success")
+     {
+      this.cache_cbs[name] = f_dev;
+      return res.data;
+     }
+	 else
+	 {
+		print(res);
+		error("failed to execute!");
+		return 0;
+	 }
+    }
+
+
+    if(this.cache_cbs:has_key(name) && szdevonline(this.cache_cbs[name]))
+    {
+     dev = this.cache_cbs[name];
+     cmd = [act:"run", name:name, params:params];
+     res = datatojson(dev:szexecresponse("NETCB",jsontodata(cmd)));
+     if(res.response == "success")
+     {
+      return res.data;
+     }
+     error("cmd execution not successful. " + name);
+     return fail(res.response);
+    }
+
+   }
+  }
+
+  error("no device found for cb: " + name);
+
+  return fail("unknown");
+ }
+
+
+ init()
+ {
+
+ }
+ on_net_cb(#data)
+ {
+  cmd = datatojson(data);
+  if(cmd)
+  {
+   if(cmd.act == "run")
+   {
+    if(!this.server_cbs:has_key(cmd.name))
+    {
+     return [response="no_cmd", cmd=cmd.name];
+    }
+
+    return [response="success",data=this.server_cbs[cmd.name](cmd.params)];
+   }
+   else(cmd.act == "check")
+   {
+    if(!this.server_cbs:has_key(cmd.name))
+    {
+     return [response:"no"];
+    }
+    return [response:"yes"];
+   }
+  }
+  print(cmd);
+  return [response:"no_cmd_json"];
+ }
+};
+
+global netcb = NetworkModule();
+
+szsetprop("NETCB",1);
+
+szcommandresponse(0,"NETCB",(data)
+{
+	res = jsontodata(netcb.on_net_cb(data));
+	return res;
+});
+
+
+
+
+
+
+
+
+
+
+

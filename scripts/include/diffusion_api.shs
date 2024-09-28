@@ -1,0 +1,469 @@
+
+#include "network_module"
+
+class diffusion_api =
+{
+
+	websocket ws = 0;
+	diff_cbs = 0;
+	g_batch = 0;
+	connected = 0;
+	last_cmd = 0;
+
+	create_masks(width,height)
+	{
+		vert_mask = bmp();
+		vert_mask.create(width,height,3);
+		mask_width = width/4;
+		for(yy = 0; yy < height; yy++)
+		{
+			for(xx = 0; xx < mask_width; xx++)
+			{
+				perc = 1. - map(xx,0,mask_width,0.,1.);
+				pxl = perc * 255.;
+				vert_mask.set_pixel(width/2 + xx,yy,vec(pxl,pxl,pxl));
+				vert_mask.set_pixel(width/2 - xx,yy,vec(pxl,pxl,pxl));
+			}
+			sleep(0);
+		}
+		
+		horz_mask = bmp();
+		horz_mask.create(width,height,3);
+		mask_width = height/4;
+		for(xx = 0; xx < width; xx++)
+		{
+			for(yy = 0; yy < mask_width; yy++)
+			{
+				perc = 1. - map(yy,0,mask_width,0.,1.);
+				pxl = perc * 255.;
+				horz_mask.set_pixel(xx,height/2 + yy,vec(pxl,pxl,pxl));
+				horz_mask.set_pixel(xx,height/2 - yy,vec(pxl,pxl,pxl));
+			}
+			sleep(0);
+		}
+		
+		middle_mask = bmp();
+		middle_mask.create(width,height,3);
+		mask_width = width/4;
+		mask_height = height/4;
+		mask_x_pos = width/2 - mask_width/2;
+		mask_y_pos = height/2 - mask_height/2;
+		middle_mask.set_region_color(mask_x_pos,mask_y_pos,mask_width,mask_height,vec(255,255,255));
+		for(yy = 0; yy < height; yy++)
+		{
+			for(xx = 0; xx < mask_width; xx++)
+			{
+				skip = false;
+				if(yy < mask_y_pos)
+				{
+					delta_x = map(yy,0,mask_y_pos,0,1);
+					delta_y = 1. - map(xx,0,mask_x_pos,0,1);
+					if(delta_x < delta_y)
+					{
+						skip = 1;
+					}
+				}
+				else(yy > mask_y_pos + mask_height)
+				{
+					delta_x = 1. - map(yy - (mask_y_pos + mask_height),0,mask_height,0,1);
+					delta_y = 1. - map(xx,0,mask_width,0,1);
+					if(delta_x < delta_y)
+					{
+						skip = 1;
+					}
+				
+				}
+				if(skip)
+					continue;
+				perc = 1. - map(xx,0,mask_width,0.,1.);
+				pxl = perc * 255.;
+				middle_mask.set_pixel(mask_x_pos + mask_width + xx,yy,vec(pxl,pxl,pxl));
+				middle_mask.set_pixel(mask_x_pos - xx,yy,vec(pxl,pxl,pxl));
+			}
+			sleep(0);
+		}
+		for(xx = 0; xx < width; xx++)
+		{
+			for(yy = 0; yy < mask_height; yy++)
+			{
+				skip = false;
+				if(xx < mask_x_pos)
+				{
+					delta_x = map(xx,0,mask_x_pos,0,1);
+					delta_y = 1. - map(yy,0,mask_y_pos,0,1);
+					if(delta_x < delta_y)
+					{
+						skip = 1;
+					}
+				}
+				else(xx > mask_x_pos + mask_width)
+				{
+					delta_x = 1. - map(xx - (mask_x_pos + mask_width),0,mask_width,0,1);
+					delta_y = 1. - map(yy,0,mask_height,0,1);
+					if(delta_x < delta_y)
+					{
+						skip = 1;
+					}
+				
+				}
+				if(skip)
+					continue;
+				perc = 1. - map(yy,0,mask_height,0.,1.);
+				pxl = perc * 255.;
+				middle_mask.set_pixel(xx,mask_y_pos + mask_height + yy,vec(pxl,pxl,pxl));
+				middle_mask.set_pixel(xx,mask_y_pos - yy,vec(pxl,pxl,pxl));
+			}
+			sleep(0);
+		}
+		
+		middle_mask.save("test_middle.png");
+		
+		return [vert_mask=vert_mask,horz_mask=horz_mask,middle_mask=middle_mask];
+	}
+	 
+	 
+	run_execute(params)
+	{
+		has_cb = 0;
+		has_img = bmp();
+
+		g_batch++;
+
+		diff_cbs[string(g_batch)] = (#cmd) //FIX ME! CMD is not a ref when this is called !!!
+		{	
+			has_cb = 1;
+			has_img.load_mem(cmd.data);
+		};
+
+		params.batch_num = g_batch;
+		ws.send(jsontodata(params));
+
+		for(!has_cb)
+		{
+			sleep(100);
+		}
+
+		return has_img;
+	}
+	 
+	upscale_and_chunk(img_info)
+	{		
+		print("get upscale...");
+		up_img = run_execute([upscale=1,image=img_info.save_mem()]);
+
+		if(up_img.width == 0 ||
+			up_img.height == 0 ||
+			img_info.width == 0 ||
+			img_info.height == 0)
+			{
+				return up_img;
+			}
+		
+		chunk_x = up_img.width / img_info.width;
+		chunk_y = up_img.height / img_info.height;
+		
+		if(chunk_x != chunk_y)
+		{
+			return up_img;
+		}
+
+		print("creating masks...");
+		masks = create_masks(img_info.width,img_info.height);
+
+		slices = 0;
+		start_x = 0;
+		start_y = 0;
+		
+		//create 4 dividing rect slices...
+		for(xx = 0; xx < up_img.width; xx += img_info.width)
+		{
+			for(yy = 0; yy < up_img.height; yy += img_info.height)
+			{
+				slices:push(up_img.region(xx,yy,img_info.width,img_info.height));
+			}
+		}
+		
+		//create slices in between
+		overlay_slices_begin = slices:count();
+		
+		for(xx = img_info.width/2; (xx+img_info.width) <= up_img.width; xx += img_info.width)
+		{
+			for(yy = 0; (yy) < up_img.height; yy += img_info.height)
+			{
+				slices:push(up_img.region(xx,yy,img_info.width,img_info.height));
+			}
+		}
+		for(xx = 0; (xx) < up_img.width; xx += img_info.width)
+		{
+			for(yy = img_info.height/2; (yy+img_info.height) <= up_img.height; yy += img_info.height)
+			{
+				slices:push(up_img.region(xx,yy,img_info.width,img_info.height));
+			}
+		}
+		for(xx = img_info.width/2; (xx+img_info.width) <= up_img.width; xx += img_info.width)
+		{
+			for(yy = img_info.height/2; (yy+img_info.height) <= up_img.height; yy += img_info.height)
+			{
+				slices:push(up_img.region(xx,yy,img_info.width,img_info.height));
+			}
+		}
+		
+		slice_path = 0;
+		
+		print("creating chunks...");
+		
+		for(i = 0; i < slices:count(); i++)
+		{
+			cur_img = slices[i];
+			new_image = run_execute([steps=last_cmd.steps,
+								seed=last_cmd.seed,
+								strength=0.3,
+								prompt=last_cmd.prompt,
+								image=cur_img.save_mem()]);
+			
+			slice_path:push(new_image);
+
+			print(f"slice {{i+1}} of {{slices:count()}}");
+		}
+		
+		
+		//stitch back together...
+		slice_index = 0;
+		//mains
+		for(xx = 0; xx < up_img.width; xx += img_info.width)
+		{
+			for(yy = 0; yy < up_img.height; yy += img_info.height)
+			{
+				up_img.set_region(xx,yy,slice_path[slice_index]);
+				slice_index++;
+			}
+		}
+		//overlays
+		for(xx = img_info.width/2; (xx+img_info.width) <= up_img.width; xx += img_info.width)
+		{
+			for(yy = 0; (yy) < up_img.height; yy += img_info.height)
+			{
+				up_img.set_region_mask(xx,yy,slice_path[slice_index],masks.vert_mask);
+				slice_index++;
+			}
+			sleep(0);
+		}
+		for(xx = 0; (xx) < up_img.width; xx += img_info.width)
+		{
+			for(yy = img_info.height/2; (yy+img_info.height) <= up_img.height; yy += img_info.height)
+			{
+				up_img.set_region_mask(xx,yy,slice_path[slice_index],masks.horz_mask);
+				slice_index++;
+			}
+			sleep(0);
+		}
+		for(xx = img_info.width/2; (xx+img_info.width) <= up_img.width; xx += img_info.width)
+		{
+			for(yy = img_info.height/2; (yy+img_info.height) <= up_img.height; yy += img_info.height)
+			{
+				up_img.set_region_mask(xx,yy,slice_path[slice_index],masks.middle_mask);
+				slice_index++;
+			}
+			sleep(0);
+		}
+			
+		return up_img;
+	}
+
+	get_key(#cmd,kname,kdefault)
+	{
+		if(cmd:has_key(kname))
+		{
+			return cmd[kname];
+		}
+		return kdefault;
+	}
+
+	get_image(#params, upscale_level) //[prompt,prompt2[OPT],cgs,strength,seed,seed2[OPT],interpolation[OPT],steps,width,height,image,mask]
+	{
+		g_batch++;
+		
+		prompt = 	params:get_key("prompt", "");
+		prompt2 = 	params:get_key("prompt2", "");
+		cgs = 		params:get_key("cgs",7.5);
+		strength = 	params:get_key("strength", 1.0);
+		seed = 		params:get_key("seed",randomInt(0,99999999));
+		seed2 = 	params:get_key("seed2",-1);
+		interpolation = params:get_key("interpolation",-1.0);
+		steps = 	params:get_key("steps",30);
+		width = 	params:get_key("width",768);
+		height = 	params:get_key("height",768);
+		
+		last_cmd = 0;
+
+		if(!prompt2:empty_str() && (seed2 == -1))
+		{
+			seed2 = randomInt(0,99999999);
+		}
+
+		if(params.image)
+		{
+			width = params.image.width;
+			height = params.image.height;
+			
+			if(params.mask)
+			{
+				print("mask!");
+				last_cmd = [prompt=prompt,
+							cgs=cgs,
+							mask=params.mask.save_mem(),
+							image=params.image.save_mem(),
+							seed=seed,
+							width=width,
+							height=height,
+							batch_num=g_batch,
+							steps=steps];
+				print("done");
+			}
+			else
+			{
+				last_cmd = [prompt=prompt,
+							prompt2=prompt2,
+							cgs=cgs,
+							strength=strength,
+							image=params.image.save_mem(),
+							seed=seed,
+							seed2=seed2,
+							interpolation=interpolation,
+							width=width,
+							height=height,
+							batch_num=g_batch,
+							steps=steps];
+			}
+		
+			if(params.image2)
+			{
+				last_cmd.image2 = params.image2.save_mem();
+			}
+		}
+		else
+		{
+			last_cmd = [prompt=prompt,
+						cgs=cgs,
+						seed=seed,
+						strength=strength,
+						width=width,
+						height=height,
+						batch_num=g_batch,
+						steps=steps];
+		}
+		
+		has_cb = 0;
+		has_img = bmp();
+
+		diff_cbs[string(g_batch)] = (#cmd) //FIX ME! CMD is not a ref when this is called !!!
+		{	
+			has_cb = 1;
+			has_img.load_mem(cmd.data);
+		};
+
+		ws.send(jsontodata(last_cmd));
+
+		//ws.send(jsontodata([test=2]));
+		//ws.send(jsontodata([test=3]));
+		//n_json = jsontodata([test="lol",kek="kaka",bbb=12]);
+		//netcb.run("sd_generate", [userid=1, internal_cmd=n_json, perms=0]);
+		
+		for(!has_cb)
+		{
+			sleep(100);
+		}
+		
+		if(upscale_level)
+		{
+			for(i = 0; i < upscale_level; i++)
+			{
+				has_img = upscale_and_chunk(has_img);
+			}
+		}
+		
+		return has_img;
+	}
+
+	hb_thread()
+	{
+		sleep(1000 * 5);
+		for(1)
+		{
+			if(connected)
+			{
+				ws.send(jsontodata([heartbeat:1]));
+			}
+			sleep(3000);
+		}
+	}
+
+	connect(username, password)
+	{
+		print("connecting...");
+		
+		ws = 0;
+		
+		if(username:empty() || password:empty())
+		{
+			ws = websocket("shizotech.com","generate",9998);
+		}
+		else
+		{
+			auto webapi = simpleweb("https://shizotech.com");
+			logres = webapi.post_ext("loginsub",[username=username,password=password,is_api=1]);
+			lns = logres.headers:split(nl());
+			headers = 0;
+			for(it :: lns)
+			{
+				print(it);
+				if(it:find("Set-Cookie") != -1)
+				{
+					cookies = it:split(":");
+					cookies[0] = cookies[0]:removetrails();
+					cookies[1] = cookies[1]:removetrails();
+					headers["Cookie"] = cookies[1];
+				}
+			}
+			ws = websocket("shizotech.com","generate",9998, headers);
+		}
+		
+		ws.on_message = (data)
+		{
+			cmd = datatojson(data);
+
+			if(cmd.act == "heartbeat")
+			{
+				return 0;
+			}
+			else(cmd.act == "state")
+			{
+				print("SERVER: " + cmd.txt);
+				return 0;
+			}
+
+			string inum = string(cmd.batch_num);
+
+			if(diff_cbs:has_key(inum))
+			{
+				diff_cbs[inum](cmd); //STILL DOESNT WORK?
+				diff_cbs:erase(inum);
+			}
+			else
+			{
+				print("unknown batch num? " + inum);
+			}
+		};
+		ws.on_open = ()
+		{
+			print("connected to backend.");	
+			connected = 1;
+			~hb_thread();
+		};
+		
+		ws.start();
+	
+		for(!connected)
+			sleep(500);
+	}
+};

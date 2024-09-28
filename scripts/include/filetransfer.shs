@@ -1,0 +1,446 @@
+
+//FUNCTIONS:
+
+//filsendhash(dev,localfile,remotefile,hash)
+//filesend(dev,localfile,remotefile)
+//remotehash(path)
+//initserver(rootpath) //rootpath not implemented yet!
+
+
+file_chunk_size = 1300;
+
+file_alive_check = 50;
+
+gfileserveractive = gvar("fileserveractive");
+
+parallel filesendhash(dev, localfile, remotefile, fhash, waitcb)
+{
+	auto fh = filehandle(localfile);
+	
+	if(fhash == 0)
+	{
+		fhash = fh:fhchecksum();
+	};
+	
+	fs = fh:fhsize();
+	
+	scs = file_chunk_size; //single chunk size
+	
+	cs = (fs / scs) + 1; //chunkcount
+	
+	fd = string(dev:szexecresponse("FILO",jsontodata([name:remotefile,size:fs,chunksize:scs, filehash:fhash])));
+	
+	if((fd == "0") || fd:empty() || (fd:starts("error")))
+	{
+		print("cannot open remote file!");
+		print("fd: " + fd);
+		print(vtype(fd));
+		return 0;
+	};
+	
+	js = 0;
+	buffer = 0;
+	databuff = 0;
+	
+	for(i = 0; i < cs; i+=file_alive_check)
+	{
+		
+		fh:fhreadbuffer(databuff,(scs*file_alive_check),i * scs);
+		
+		if(waitcb)
+		{
+			waitcb(float(i) / float(cs));
+		};
+		
+		if(databuff:count() == 0)
+		{
+			break;
+		};
+		
+		itemc = (databuff:count() / scs)+1;
+		js["fd"] = fd;
+		for(j = 0; j < itemc; j++)
+		{
+			js["chunk"] = i+j;
+			js["data"] = databuff:subset(j*scs,scs);
+			js["chk"] = datahash(js["data"]);
+			dev:szexecdirect("FILC",jsontodata(js));
+		};
+		string res = dev:szexecresponse("FILA", fd);
+		if(res != "1")
+		{
+			print("fd is not valid!");
+			print(res);
+			return 0;
+		};
+	};
+	
+	for(k = 0; k < 50; k++)
+	{
+		sleep(5);
+		miss = string(dev:szexecresponse("FILM",fd));
+
+		if(miss == "success")
+		{
+			return 1;
+		}
+		else(miss:starts("error"))
+		{
+			print("ms response error! " + miss); 
+			return 0;
+		}
+		else(miss:empty())
+		{
+			print("miss response empty!"); 
+			return 0;
+		};
+		
+		ms = miss:split(",");
+		
+		if(ms:count() == 0)
+		{
+			print("ms response empty! " + miss); 
+			return 0;
+		};
+		
+		for(j = 0; j < ms:count(); j++)
+		{
+			i = int(ms[j]);
+			
+			fh:fhreadbuffer(js["data"],scs,i * scs);
+		
+			if(js["data"]:count() == 0)
+			{
+				break;
+			};
+			
+			js["fd"] = fd;
+			js["chunk"] = i;
+			js["chk"] = datahash(js["data"]);
+			
+			//if we cant get the data through in 3 runs send it safely:::
+			if(k < 3)
+			{
+				dev:szexecdirect("FILC",jsontodata(js));
+			};
+			else
+			{
+				dev:szexec("FILC",jsontodata(js));
+			};
+			
+			if(mod(j+1,20) == 0)
+			{
+				string res = dev:szexecresponse("FILA", fd);
+				if(res != "1")
+				{
+					print("fd is not valid!");
+					print(res);
+					return 0;
+				};
+			};
+			
+			if(waitcb)
+			{
+				waitcb(float(j) / float(ms:count()));
+			};
+		};
+		
+		sleep(100);
+	};
+	print("trycount reached!");
+	return 0;
+};
+
+parallel filesend(dev, localfile, remotefile)
+{
+	filesendhash(dev,localfile,remotefile,0,0);
+};
+parallel filesend2(dev, localfile, remotefile, waitcb)
+{
+	filesendhash(dev,localfile,remotefile,0,waitcb);
+};
+
+parallel remotehash(dev, remotefile)
+{
+	return string(dev:szexecresponse("FILH",remotefile));
+};
+
+parallel remotehashes(dev, #remotefiles)
+{
+	query = "";
+	for(i = 0; i < remotefiles:count(); i++)
+	{
+		query += remotefiles[i];
+		if(i != (remotefiles:count()-1)) { query += "?"; };
+	};
+	return split(string(dev:szexecresponse("FILH2",query)),",");
+};
+
+threaded initserver(rootpath,dbpath)
+{
+	if($gfileserveractive)
+	{
+		print("error server already active!");
+		return 0;
+	};
+	
+	$gfileserveractive = 1;
+
+	db = kvdb(dbpath);
+
+	szsetprop("fileserver","1.1");
+	
+	filebuffers = 0;
+	fileindex = 1;
+	
+	parallel openfb(path,fsize, chunksize, fhash)
+	{
+		path = path:replace("\","/");
+		path = path:replace("::/","");
+	
+		fh = filehandle(path);
+		
+		if(fh:fhopened() == 0)
+		{
+			print("cannot open file: " + path);
+			return "error 1";
+		};
+		
+		if(fileindex == 0) { fileindex = 1; };
+		
+		fi = string(fileindex);
+		fileindex++;
+		
+		
+		filebuffers[fi]["handle"] = fh;
+		filebuffers[fi]["time"] = time();
+		filebuffers[fi]["chunks"] = (fsize / chunksize) + 1;
+		filebuffers[fi]["chunksize"] = chunksize;
+		filebuffers[fi]["hash"] = fhash;
+		filebuffers[fi]["path"] = path;
+		filebuffers[fi]["filesize"] = fsize;
+		filebuffers[fi]["buffer"] = json();
+		filebuffers[fi]["writerefs"] = 0;
+		
+		dset(filebuffers[fi]["rchunks"],int(filebuffers[fi]["chunks"]));
+		
+		if(fh:fhalloc(fsize))
+		{
+			return fi;
+		};
+		print("file alloc failed!");
+		return "error 2";
+	};
+	
+	//do not make param ref, needs copy! else race condition
+	parallel fileflush(str, buffer)
+	{
+		fh = filebuffers[str]["handle"];
+		filebuffers[str]["writerefs"] += 1;
+
+		for(i = 0; i < buffer:count(); i++)
+		{
+			fh:fhwritecmd(buffer[i],int(buffer:key(i)) * file_chunk_size);
+		};
+		
+		fh:fhwriteflush();
+		filebuffers[str]["time"] = time();
+		filebuffers[str]["writerefs"] -= 1;
+	};
+	
+	//dont make this threaded, let client wait till file is actually closed
+	parallel fileflushclose(str)
+	{
+		fh = filebuffers[str]["handle"];
+		buffer = #filebuffers[str]["buffer"];
+		maxtimeout = 0;
+		for(filebuffers[str]["writerefs"])
+		{
+			filebuffers[str]["time"] = time();
+			sleep(500);
+		};	
+		
+		for(i = 0; i < buffer:count(); i++)
+		{
+			fh:fhwritecmd(buffer[i],int(buffer:key(i)) * file_chunk_size);
+		};	
+
+		filebuffers[str]["time"] = time();
+		fh:fhresize(filebuffers[str]["filesize"]);
+		fh:fhwriteflush();
+		fh:free();
+		
+		db:kvdb_write(filebuffers[str]["path"],
+									filebuffers[str]["hash"]);
+		
+		filebuffers:erase(str);
+	};
+	
+	szdevconnect((macid,dev)
+	{
+		//check if we're still valid FILE A(LIVE)
+		dev:szcommandresponse("FILA",(str)
+		{
+			str = string(str);
+
+			if(filebuffers:has_key(str))
+			{
+				filebuffers[str]["time"] = time();
+				return "1";
+			};
+			print("cannot find fd " + str);
+			//print("value is: " + filebuffers:has_key(str));
+			return "0";
+		});
+		
+		//get what chunks are missing
+		dev:szcommandresponse("FILM",(str)
+		{
+			str = string(str);
+			if(filebuffers:has_key(str))
+			{
+				result = "";
+				chunkref = #filebuffers[str]["rchunks"];
+				
+				if(chunkref:count() == 0)
+				{			
+					free(filebuffers[str]["handle"]);
+					filebuffers:erase(str);
+					return "error 1";
+				};
+				for(i = 0; i < chunkref:count(); i++)
+				{
+					
+					if(chunkref[i] != 1)
+					{
+						if(result:empty() == 0)
+						{
+							result += ",";
+						};
+						result += string(i);
+					};
+				};
+				filebuffers[str]["time"] = time();
+				if(result:empty())
+				{			
+					fileflushclose(str);
+					return "success";
+				}
+				else
+				{
+					return result;
+				};
+			};
+			return "error 2";
+		});
+		
+		dev:szcommandresponse("FILH",(str)
+		{
+			str = string(str);
+			str = str:replace("\","/");
+			str = str:replace("::/","");
+
+			if(fileexists(str))
+			{
+				return string(db:kvdb_read(str));
+			}
+			else
+			{
+				print("file does not exist!");
+			};
+			return "0";
+		});
+		
+		dev:szcommandresponse("FILH2",(str)
+		{
+			str = string(str);
+			str = str:replace("\","/");
+			str = str:replace("::/","");
+
+			strs = str:split("?");
+			result = "";
+			for(i = 0; i < strs; i++)
+			{
+				if(fileexists(str))
+				{
+					result += string(db:kvdb_read(strs[i]));
+				}
+				else
+				{
+					result += "0";
+				};
+				if(i != (strs:count()-1)) { result += ","; };
+			};
+			return result;
+		});
+		
+		//File Open
+		dev:szcommandresponse("FILO",(data)
+		{
+			desc = datatojson(data);
+			if(desc:has_key("name") && desc:has_key("size"))
+			{
+				return string(openfb(desc["name"],desc["size"], desc["chunksize"], desc["filehash"]));
+			};
+			return "error 3";
+		});
+		
+		//FILE CHUNK
+		
+		//collect like 100 packets in a buffer and then write this to disk
+		//also in FILM since we could have rest packtes to flush
+		
+		dev:szcommand("FILC",(data)
+		{
+			desc = datatojson(data);
+			str = string(desc["fd"]);
+			
+			if(filebuffers:has_key(str) && desc["data"]:count())
+			{
+				int chunkidx = desc["chunk"];
+				if((datahash(desc["data"]) == desc["chk"]) && (chunkidx < filebuffers[str]["chunks"]))
+				{				
+					if(filebuffers[str]["rchunks"][chunkidx] == 0)
+					{
+
+						fh = filebuffers[str]["handle"];
+						cs = filebuffers[str]["chunksize"];
+						filebuffers[str]["rchunks"][chunkidx] = 1;
+
+						//fh:fhwrite(desc["data"],chunkidx * cs);
+						filebuffers[str]["buffer"][string(chunkidx)] = desc["data"];
+											
+						if(filebuffers[str]["buffer"]:count() >= (100*1024))
+						{
+							fileflush(str,filebuffers[str]["buffer"]);
+							clear(filebuffers[str]["buffer"]);
+						};
+						filebuffers[str]["time"] = time();
+					};
+				};
+			};
+		});
+		
+		//keep alive
+		keepalive();
+	});
+	
+	//watchdog
+	for(1)
+	{
+		for(vtype(filebuffers) != "JSON")
+		{
+			sleep(1000 * 60);
+		};
+		for(i = 0; i < filebuffers:count(); i++)
+		{
+			if((time() - filebuffers[i]["time"]) > (1000 * 60 * 5))
+			{
+				print("erasing open filebuffer after timeout:");
+				free(filebuffers[i]["handle"]);
+				i = filebuffers:erase(i);
+			};	
+		};
+		sleep(1000 * 60);
+	};
+};
