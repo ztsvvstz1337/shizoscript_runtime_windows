@@ -1,0 +1,40 @@
+
+
+class A =
+{
+	var m_a;
+	
+	
+	A(str="default_value")
+	{
+		print("classA: " + str);
+		this.m_a = str;
+	}
+	
+	func()
+	{
+		print(this.m_a);
+	}
+	
+	func2(a,b=9,c=9)
+	{
+		print(a);
+		print(b);
+		print(c);
+	}
+};
+
+test_a = A();
+
+list_a = [A("a"),A("b"),A("c")];
+
+list_a ::= func();
+
+print(list_a);
+
+print("TEST2");
+
+bbb = A();
+bbb.func();
+
+bbb.func2(1,2);

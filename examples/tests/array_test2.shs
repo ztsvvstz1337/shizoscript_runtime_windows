@@ -1,0 +1,36 @@
+
+class A =
+{
+	class B =
+	{
+		aaa = 0;
+		bbb = 0;
+		B()
+		{
+			print(this);
+			this.bbb = 2;
+		}
+	};
+
+	create_b()
+	{
+		return B();
+	}
+
+};
+
+
+A.B[] ttt = 0;
+
+print("PUSH");
+ttmp = A.B();
+ttt:push(ttmp);
+print("PRINT");
+print(ttt[0].bbb);
+
+print("TEST 2");
+
+ttt = 0;
+A.B ttmp = A.create_b();
+ttt:push(ttmp);
+print(ttt[0].bbb);

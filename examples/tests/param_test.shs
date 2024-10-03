@@ -1,0 +1,27 @@
+
+class A=
+{
+	func(a,b,c=3)
+	{
+		print("A: " + a);
+		print("B: " + b);
+		print("C: " + c);
+
+		b = 2;
+	}
+};
+
+aaa = A();
+
+aaa.func(1);
+aaa.func(1,1,1);
+aaa.func(2);
+aaa.func(2,2,2,2);
+
+
+for(i = 0; i < 3; i++)
+{
+	print("ok");
+}
+
+print(i);

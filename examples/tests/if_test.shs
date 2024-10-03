@@ -1,0 +1,21 @@
+
+
+aaa = 1;
+
+if(aaa == 0)
+	print("OKAY");
+	print("OKAy2");
+else
+	print("FAIL!");
+	
+	print("FAIL2");
+	
+		print("FAIL3");
+	print("FAIL4");
+	if(0)
+		print("fail5");
+		print("fail6");
+	else
+	
+		print("final fail!");
+print("finished.");

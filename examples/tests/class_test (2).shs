@@ -1,0 +1,23 @@
+
+class A =
+{
+	class B =
+	{
+		B()
+		{
+			print("B");
+		}
+	};
+	
+	m_a = 0;
+	
+	A()
+	{
+		m_a = B();
+		print("A:");
+		print(m_a);
+	}
+
+};
+
+aaa = A();

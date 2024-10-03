@@ -1,0 +1,28 @@
+
+class TEST=
+{
+	A = 0;
+	B = 1;
+	C = 2;
+	
+	TEST()
+	{
+		this.B = 3;
+	}
+};
+
+
+
+tst_func(TEST[] #a)
+{
+	print(vtype(a));
+	print(a[0].B);
+}
+
+tt = 0;
+tt:push(TEST());
+
+tst_func(tt);
+
+
+

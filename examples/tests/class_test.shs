@@ -1,0 +1,55 @@
+
+class A =
+{
+	testA = 0;
+	
+	A()
+	{
+	
+	}
+};
+
+
+class B =
+{
+	A m_test = 0;
+	A m_test2 = 0;
+	
+	B()
+	{
+		vtype(this.m_test);
+		this.m_test = A();
+		print("lol");
+		print(vtype(this.m_test));
+	}
+};
+
+ttt = B();
+
+print(ttt.m_test);
+
+
+print("CLASS THREAD TEST");
+
+class C =
+{
+	m_a = 0;
+	
+	C()
+	{
+		this.m_a = 12;
+	}
+	
+	test(aaa)
+	{
+		print(this.m_a);
+	}
+};
+
+sleep(3000);
+
+ccc = C();
+
+fff = [1,2,3,4];
+
+~ccc.test(ff[0]);

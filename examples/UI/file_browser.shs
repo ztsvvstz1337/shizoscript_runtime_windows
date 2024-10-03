@@ -1,0 +1,294 @@
+set_auto_reload(1);
+
+scr = ui.screen("TEST",640,480);
+
+scr.layout = 0;
+
+
+filebrowser_id_counter = 0;
+
+create_new_fb_helper = 0;
+
+class FileBrowser =
+{
+	m_cnt = 0;
+	m_root_path = "";
+	m_folder_label = 0;
+
+	m_entries = 0;
+	m_fbid = 0;
+
+	m_folder_parent = 0;
+	m_mainparent = 0;
+
+	select_callback = 0;
+	
+	m_filters = 0;
+	
+	//default args do not work for constructors !!!
+	FileBrowser(parent, root_path, folder, main_parent, folder_parent)
+	{
+		if(main_parent == 0)
+			m_mainparent = parent;
+		else
+			m_mainparent = main_parent;
+		
+		if(!root_path:is_function() && root_path:empty_str())
+			root_path = "";
+		if(folder:empty_str())
+			folder = "";
+		
+		print("PARENT:");
+		print(folder_parent);
+		print(main_parent);
+		
+		m_folder_parent = folder_parent;
+		
+		m_fbid = filebrowser_id_counter;
+		print("ID: " + m_fbid);
+		filebrowser_id_counter++;
+		m_root_path = root_path;
+		m_cnt = ui.container(parent);
+		m_cnt := anchor_all = 0;
+		print("calling create expandable...");
+		this.create_expandable_cnt(folder);
+		
+		m_cnt.on_predraw = [this]()
+		{			
+			nvgBeginPath();
+			nvgRect(0,0,this.m_cnt.real_width, this.m_cnt.real_height);
+			nvgFillColor(0.1,0.1,0.1,0.3);
+			nvgFill();
+			
+			nvgBeginPath();
+			nvgMoveTo(4, 13);
+			nvgLineTo(4, this.m_cnt.real_height - 13);
+			nvgStrokeColor(0.9,0.9,0.9,0.7);
+			nvgStrokeWidth(1);
+			nvgStroke();
+		};
+	}
+	~FileBrowser()
+	{
+		print("FB FREE " + this.m_fbid);
+		
+		for(f :: this.m_entries)
+		{
+			free(f);
+		}
+		
+		free(this.m_cnt);
+	}
+	
+	get_path(item_name = "")
+	{
+		current_item_name = item_name;
+		if(current_item_name:empty_str())
+			current_item_name = this.m_folder_label.attr.old_value;
+		
+		real_path = "";
+		if(this.m_folder_parent)
+			real_path = this.m_folder_parent.get_path();
+		if(!this.m_root_path:empty_str())
+			real_path = this.m_root_path + "/" + real_path;
+		if(!real_path:empty_str())
+			real_path += "/" + current_item_name;
+		else
+			real_path = current_item_name;
+		print("P: " + real_path);
+		return real_path;
+	}
+	
+	get_root_parent()
+	{
+		current_parent = this;
+		print("root parent: " + current_parent.m_folder_parent);
+		
+		for(current_parent.m_folder_parent)
+		{
+			print("get parent...");
+			current_parent = current_parent.m_folder_parent;
+		}
+		return current_parent;
+	}
+	
+	get_root_filters()
+	{
+		rp = this.get_root_parent();
+		return rp.m_filters;
+	}
+	
+	get_root_path()
+	{
+		rp = this.get_root_parent();
+		return rp.m_root_path;
+	}
+	
+	add_filter(new_filter)
+	{
+		this.m_filters:push(new_filter);
+	}
+	
+	set_filter(filters)
+	{
+		this.m_filters = filters;
+	}
+	
+	get_filters()
+	{
+		return this.m_filters;
+	}
+	
+	create_expandable_cnt(folder)
+	{
+		cnt = ui.widget(this.m_cnt);
+		cnt := fixed_height = 25;
+		
+		btn = ui.pushbutton(cnt,"+");
+		btn := anchor_left = 0, anchor_top = 5, anchor_bottom = 5, fixed_width = 20;
+		m_folder_label = ui.labelbox(cnt, folder);
+		m_folder_label := anchor_left = 20, anchor_right = 0, anchor_top = 0, anchor_bottom = 0;
+		m_folder_label.attr.old_value = folder;
+		
+		btn.callback = [this, btn]()
+		{
+			//copy lambdas because they get overwritten on a recursive call...
+			current_this = this;
+			current_btn = btn;
+			
+			if(current_btn.value)
+				current_btn.text = "-";
+			else
+				current_btn.text = "+";
+			
+			opened = current_btn.value;
+			
+			if(!opened)
+			{
+				print("ID: " + current_this.m_fbid);
+				for(f :: current_this.m_entries)
+				{
+					free(f);
+				}
+				current_this.m_entries = 0;
+				current_this.m_mainparent.update_layout();
+				return;
+			}
+			
+			print("load files...");
+			real_path = this.get_path();
+			
+			print("RP: " + real_path);
+			
+			fl = 0;
+			
+			rp = this.get_root_path();
+			
+			if(rp:is_function())
+				fl = rp("GET_PATH", real_path);
+			else
+				fl = folder_content(real_path);
+
+			for(f :: fl.folders)
+			{
+				//CALLING this recursivly CAUSES THE LAMBDA FUNCTION TO BE INIZIALIZED AGAIN
+				//BY SHZASM_SET AND THEREFORE INVALIDATES this AND btn !!!
+				//MAKE EXTRA SET FUNCTION WHICH CHECKS IF A LAMBDA FUNC IS CURRENTLY RUNNING!!!!				
+				new_fb = create_new_fb_helper(current_this.m_cnt, "", f, current_this.m_mainparent, current_this);
+				//THIS DOESNT WORK BECAUSE IT DOESNT REGISTER THE CLASS HERE BUT THE CONSTRUCTOR FUNCTION (?!)
+				//new_fb = FileBrowser(current_this.m_cnt, real_path, f);
+				print(new_fb);
+				current_this.m_entries:push(new_fb);
+			}
+
+			filters = current_this.get_root_filters();
+			
+			for(f :: fl.files)
+			{
+				skip_file = 0;
+				for(it :: filters)
+				{
+					if(it(f))
+					{
+						print("SKIP FILE!");
+						skip_file = 1;
+						break;
+					}
+				}
+				
+				if(skip_file)
+					continue;
+				
+				new_entry_box = ui.labelbox(current_this.m_cnt, f);
+				
+				new_entry_box := fixed_height = 25;
+				
+				current_this.m_entries:push(new_entry_box);
+				new_entry_box.on_select = [current_this, f]()
+				{
+					root_parent = current_this.get_root_parent();
+
+					if(root_parent.select_callback:is_function())
+						root_parent.select_callback(current_this.get_path() + "/" + f);
+				};
+				new_entry_box.attr.path = current_this.get_path() + "/" + f;
+				new_entry_box.attr.old_value = f;
+				
+				new_entry_box.callback = [this, new_entry_box]()
+				{
+					_rp = this.get_root_path();
+					if(_rp:is_function())
+						if(_rp("RENAME", new_entry_box.value))
+							new_entry_box.attr.old_value = new_entry_box.value;
+						else
+							new_entry_box.value = new_entry_box.old_value;
+							print("cannot rename folder!");
+					else(os.rename(this.get_path(new_entry_box.attr.old_value), this.get_path(new_entry_box.value)))
+						new_entry_box.attr.old_value = new_entry_box.value;
+					else
+						new_entry_box.value = new_entry_box.old_value;
+						print("cannot rename file!");
+				};
+			}
+
+			current_this.m_mainparent.update_layout();
+		};
+	
+		m_folder_label.callback = [this]()
+		{
+			print("old value: " + this.m_folder_label.attr.old_value + " new value: " + this.get_path(this.m_folder_label.value));
+			
+			_rp = this.get_root_path();
+			if(_rp:is_function())
+				if(_rp("RENAME", this.m_folder_label.value))
+					this.m_folder_label.attr.old_value = this.m_folder_label.value;
+				else
+					this.m_folder_label.value = this.m_folder_label.old_value;
+					print("cannot rename folder!");
+			else(os.rename(this.get_path(), this.get_path(this.m_folder_label.value)))
+				this.m_folder_label.attr.old_value = this.m_folder_label.value;
+			else
+				this.m_folder_label.value = this.m_folder_label.attr.old_value;
+				print("cannot rename folder!");
+		};
+	}
+};
+
+create_new_fb_helper(parent, root_path, folder, main_parent, folder_parent)
+{
+	print("mp: " + main_parent);
+	print("cp: " + folder_parent);
+	return FileBrowser(parent, root_path, folder, main_parent, folder_parent);
+}
+
+fb = FileBrowser(scr, (action, path)
+{
+	print(action);
+	if(action == "GET_PATH")
+		return [folders=["test1","test2"], files=["test3","test4"]];
+	else(action == "RENAME")
+		print("RENAME: " + path);
+		return 1;
+}, "test");
+print(FileBrowser);
+print(fb);

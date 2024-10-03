@@ -1,0 +1,61 @@
+set_auto_reload(1);
+
+scr = ui.screen("TEST",640,480);
+scr.layout = 0;
+
+//TESTING:
+wdgt2 = ui.ctrl_slider(scr);
+wdgt2 := min=0, max=2;
+wdgt = ui.sliderext(scr,"TEST CONTROL");
+
+return;
+
+
+wdgt = ui.widget(scr);
+
+wdgt := anchor_left = 0, anchor_right = 0, fixed_height = 25;
+
+wdgt.on_draw = ()
+{
+	size_x = self.real_width;
+	size_y = self.real_height;
+	
+	nvgBeginPath();
+	nvgRoundedRect(0, 0, size_x/2, size_y, 8);
+	nvgFillColor(0.1,0.1,0.1,1);
+	nvgFill();
+	nvgRoundedRect(size_x, 0, (0-size_x/2), size_y, 8);
+	nvgFillColor(0.4,0.4,0.4,1);
+	nvgFill();
+	
+	nvgBeginPath();
+	nvgMoveTo(size_x/2, 0);
+	nvgLineTo(size_x/2, 3);
+	nvgMoveTo(size_x/2, size_y);
+	nvgLineTo(size_x/2, size_y-3);
+	nvgStrokeWidth(4);
+	nvgStrokeColor(0.9,0.9,0.9,1.0);
+	nvgStroke();
+
+	nvgBeginPath();
+	nvgMoveTo(size_x/2, 3);
+	nvgLineTo(size_x/2, size_y - 6);
+	nvgStrokeWidth(4);
+	nvgStrokeColor(0.3,0.3,0.3,1);
+	nvgStroke();
+
+	nvgFontFace("sans");
+	nvgTextAlign(NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
+	nvgFontSize(20);
+	nvgFillColor(1.0,1.0,1.0, 1.0);
+	nvgText(3, size_y/2, "TEST CONTROL");
+	nvgTextAlign(NVG_ALIGN_RIGHT | NVG_ALIGN_MIDDLE);
+	nvgText(size_x-3, size_y/2, "0.0000");
+
+	nvgBeginPath();
+	nvgRoundedRect(0, 0, size_x, size_y, 8);
+	nvgStrokeColor(0.1,0.1,0.1,1);
+	nvgStrokeWidth(2);
+	nvgStroke();
+	
+};

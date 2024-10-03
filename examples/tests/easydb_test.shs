@@ -1,0 +1,23 @@
+#include "easydb"
+
+
+class A=
+{
+	A()
+	{
+	
+	}
+
+	test()
+	{
+		auto aaa = easydb("TEST");
+		aaa.write("aaa","bbb");
+		print("OKAY");
+	}
+};
+
+aaa = A();
+
+aaa.test();
+
+print("DONE");

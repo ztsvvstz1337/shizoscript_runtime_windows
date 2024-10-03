@@ -1,0 +1,18 @@
+
+net = shizonet_base("WINDOWS");
+
+net.on_connect((dev)
+{
+	if(!dev.is_shizonet())
+		return;
+	
+	if(dev.get_name() != "ESP32")
+		return;
+	
+	print("DEV CONNECTED!");
+
+	dev.send("simple_command", "Hello world!");
+	
+	dev.send("test_reliable", "Hello world!");
+
+});

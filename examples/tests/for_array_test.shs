@@ -1,0 +1,19 @@
+
+get_array()
+{
+	return [A=1,B=3];
+}
+
+arr = get_array();
+
+for(1)
+{
+	print("START");
+	for(arr.A < arr.B)
+	{
+		arr.A++;
+	}
+	print("OK");
+	sleep(2000);
+	arr.A = 0;
+}

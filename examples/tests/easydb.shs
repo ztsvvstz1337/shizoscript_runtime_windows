@@ -1,0 +1,72 @@
+
+class easydb =
+{
+	m_db = 0;
+	
+	easydb(db_name)
+	{
+		this.m_db = kvdb(db_name);
+	}
+	~easydb()
+	{
+		free(this.m_db);
+	}
+	
+	exists(key_name)
+	{
+		return this.m_db:kvdb_exists(string(key_name));
+	}
+	
+	read(key_name)
+	{
+		key_name = string(key_name);
+		return this.m_db:kvdb_read(key_name);
+	}
+	read_field(key_name, field_name)
+	{
+		key_name = string(key_name);
+		cur = this.read(key_name);
+		return cur[field_name];
+	}
+	read_fields(key_name, fields)
+	{
+		key_name = string(key_name);
+		cur = this.read(key_name);
+		res = 0;
+		for(i = 0; i < fields:count(); i++)
+		{
+			kn = fields:key(i);
+			res[kn] = cur[kn];
+		}
+		
+		return res;
+	}
+	write(key_name, value)
+	{
+		key_name = string(key_name);
+		return this.m_db:kvdb_write(key_name, value);
+	}
+	write_field(key_name, field_name, value)
+	{
+		key_name = string(key_name);
+		cur = this.read(key_name);
+		cur[field_name] = value;
+		return this.write(key_name, cur);
+	}
+	update(key_name, values)
+	{
+		key_name = string(key_name);
+		cur = this.read(key_name);
+		
+		for(i = 0; i < values:count(); i++)
+		{
+			kn = values:key(i);
+			if(!kn:empty_str())
+			{
+				cur[kn] = values[i];
+			}
+		}
+
+		return this.write(key_name, cur);
+	}
+};

@@ -1,0 +1,12 @@
+
+
+fn()
+{
+	print("FN!");
+	ret = [a="a",b="b"];
+	return jsontodata(ret);
+}
+
+for(i = 0; i < 5;i++)
+	fn();
+	

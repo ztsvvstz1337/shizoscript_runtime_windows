@@ -1,0 +1,10 @@
+
+
+net = shizonet_base("PC1");
+
+
+net.on_command("testcmd2", (data, dev)
+{
+	print(data);
+	print(dev.get_name());
+});

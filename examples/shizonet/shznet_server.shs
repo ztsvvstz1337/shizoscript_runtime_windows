@@ -1,0 +1,22 @@
+
+net = shizonet_base("WINDOWS");
+
+net.on_connect((dev)
+{
+	if(!dev.is_shizonet())
+		return;
+	print("DEV CONNECTED!");
+
+	cc = 0;
+	for(1)
+	{
+		print("sending...");
+		dev.send("testcmd", "test",0,-1,1);
+		print("OK");
+		if(!dev.still_valid())
+			print("invalid device!");
+			return;
+		cc++;
+		sleep(1500);
+	}
+});

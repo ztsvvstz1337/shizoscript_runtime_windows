@@ -1,0 +1,8 @@
+#include "config_markup"
+
+str = config_markup.parse(os.file_as_string("config.txt"));
+
+print(str);
+
+
+print(vtype(str:key(0)));
